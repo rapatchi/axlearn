@@ -21,6 +21,7 @@ from axlearn.common import flax_struct, input_base, summary_writer, utils
 from axlearn.common.base_model import BaseModel
 from axlearn.common.managed_mldiagnostics import (
     MLDiagnosticsConfig,
+    is_ml_diagnostics_metrics_enabled,
     is_ml_diagnostics_xprof_enabled,
 )
 from axlearn.common.config import (
@@ -615,12 +616,11 @@ class SpmdEvaler(Module):
             model=model,
             model_param_partition_specs=model_param_partition_specs,
         )
-        self._add_child("summary_writer", cfg.summary_writer)
-        if cfg.output_writer is not None:
-            self._add_child("output_writer", cfg.output_writer)
-
         self._trace_steps = set()
         self._eval_policy: EvalPolicy = cfg.eval_policy.instantiate()
+        self._enable_ml_diagnostics_metrics: bool = is_ml_diagnostics_metrics_enabled(
+            cfg.ml_diagnostics
+        )
         self._enable_ml_diagnostics_xprof: bool = is_ml_diagnostics_xprof_enabled(
             cfg.ml_diagnostics
         )
@@ -630,6 +630,14 @@ class SpmdEvaler(Module):
                 ManagedMLDiagnostics(cfg.ml_diagnostics)
             except Exception:  # pylint: disable=broad-except
                 pass
+
+        writer_cfg = cfg.summary_writer
+        if self._enable_ml_diagnostics_metrics:
+            from axlearn.common.summary_writer import inject_mldiagnostics_writer
+            writer_cfg = inject_mldiagnostics_writer(writer_cfg, cfg.ml_diagnostics)
+        self._add_child("summary_writer", writer_cfg)
+        if cfg.output_writer is not None:
+            self._add_child("output_writer", cfg.output_writer)
 
     def eval_step(
         self,

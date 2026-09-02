@@ -29,6 +29,51 @@ class ManagedMLDiagnosticsTest(parameterized.TestCase):
         super().setUp()
         ManagedMLDiagnostics._instance = None
 
+    @parameterized.parameters(
+        ("loss", 0.5, "LOSS"),
+        ("learning_rate", 0.1, "LEARNING_RATE"),
+        ("learner/learning_rate", 0.1, "LEARNING_RATE"),
+        ("learner/optimizer/learning_rate", 0.1, "LEARNING_RATE"),
+        ("gradient_norm", 1.2, "GRADIENT_NORM"),
+        ("learner/gradient_norm", 1.2, "GRADIENT_NORM"),
+        ("learner/optimizer/gradient_norm", 1.2, "GRADIENT_NORM"),
+        ("num_model_params", 1e9, "TOTAL_WEIGHTS"),
+        ("average_step_time", 0.5, "STEP_TIME"),
+        ("step_time", 0.5, "STEP_TIME"),
+        ("unmapped_metric", 123.4, None),
+    )
+    def test_record_metric(self, path, raw_value, expected_metric_type_name):
+        mock_metric_types = mock.MagicMock()
+        # Set up mock enum values from the actual mapping
+        from axlearn.common.managed_mldiagnostics import _METRIC_TO_METRIC_TYPE_NAME
+        for name in set(_METRIC_TO_METRIC_TYPE_NAME.values()):
+            setattr(mock_metric_types.MetricType, name, name)
+
+        mock_metrics = mock.MagicMock()
+
+        # Mock the import of google_cloud_mldiagnostics
+        modules_mock = {
+            "google_cloud_mldiagnostics": mock.MagicMock(),
+            "google_cloud_mldiagnostics.metric_types": mock_metric_types,
+            "google_cloud_mldiagnostics.metrics": mock_metrics,
+        }
+
+        with mock.patch.dict(sys.modules, modules_mock):
+            # Resolve dependencies in sys.modules
+            sys.modules["google_cloud_mldiagnostics"].metric_types = mock_metric_types
+            sys.modules["google_cloud_mldiagnostics"].metrics = mock_metrics
+
+            diagnostics = ManagedMLDiagnostics()
+            diagnostics._is_enabled = True
+            diagnostics.record_metric(path, raw_value, step=10)
+
+            if expected_metric_type_name is not None:
+                mock_metrics.record.assert_called_once_with(
+                    expected_metric_type_name, float(raw_value), step=10
+                )
+            else:
+                mock_metrics.record.assert_not_called()
+
     def test_initialize_run_success(self):
         mock_machinelearning_run = mock.MagicMock()
         modules_mock = {
@@ -40,7 +85,7 @@ class ManagedMLDiagnosticsTest(parameterized.TestCase):
             sys.modules["google_cloud_mldiagnostics"].machinelearning_run = mock_machinelearning_run
 
             cfg = MLDiagnosticsConfig(
-                gcs_path="gs://test", region="us-central1", enable_xprof=True
+                gcs_path="gs://test", region="us-central1", enable_xprof=True, enable_metrics=True
             )
             diagnostics = ManagedMLDiagnostics(cfg)
             mock_machinelearning_run.assert_called_once_with(

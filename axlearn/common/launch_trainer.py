@@ -119,6 +119,11 @@ flags.DEFINE_bool(
     False,
     "Whether to enable Google Cloud ML Diagnostics automated profiler (xprof) capture.",
 )
+flags.DEFINE_bool(
+    "enable_ml_diagnostics_metrics",
+    False,
+    "Whether to enable Google Cloud ML Diagnostics metrics collection.",
+)
 flags.DEFINE_string(
     "ml_diagnostics_region",
     None,
@@ -183,6 +188,7 @@ def get_trainer_config(
         trainer_config.log_every_n_steps = flag_values.trainer_log_every_n_steps
     trainer_config.ml_diagnostics = MLDiagnosticsConfig(
         enable_xprof=flag_values.enable_ml_diagnostics_xprof,
+        enable_metrics=flag_values.enable_ml_diagnostics_metrics,
         region=flag_values.ml_diagnostics_region,
         gcs_path=f"{trainer_config.dir}/profiles",
     )

@@ -803,8 +803,10 @@ class TPUReplicatedJobTest(TestCase):
 
     def test_mldiagnostics_label(self):
         cases = [
+            ("python3 -m trainer --enable_ml_diagnostics_metrics=True", True),
             ("python3 -m trainer --enable_ml_diagnostics_xprof=True", True),
-            ("python3 -m trainer --enable_ml_diagnostics_xprof=False", False),
+            ("python3 -m trainer --enable_ml_diagnostics_metrics=True --enable_ml_diagnostics_xprof=True", True),
+            ("python3 -m trainer --enable_ml_diagnostics_metrics=False", False),
             ("python3 -m trainer", False),
         ]
         for command, expected in cases:

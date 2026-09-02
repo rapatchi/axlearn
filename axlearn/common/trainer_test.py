@@ -1442,6 +1442,71 @@ class TrainerTest(test_utils.TestCase):
             self.assertIsNone(stop_trace_step)
             mock_xprof_inst.stop.assert_called_once()
 
+    def test_ml_diagnostics_writer_injection(self):
+        from unittest import mock
+        from axlearn.common.managed_mldiagnostics import MLDiagnosticsConfig
+        from axlearn.common.summary_writer import CompositeWriter, MLDiagnosticsMetricsWriter, SummaryWriter
+
+        # Reset singleton to avoid leakage
+        from axlearn.common.managed_mldiagnostics import ManagedMLDiagnostics
+        ManagedMLDiagnostics._instance = None
+
+        cfg = self._trainer_config()
+        cfg.ml_diagnostics = MLDiagnosticsConfig(
+            enable_metrics=True,
+            region="us-central1",
+            gcs_path="gs://test/profiles",
+        )
+
+        # 1. Test case where original summary writer is a simple SummaryWriter
+        self.assertTrue(issubclass(cfg.summary_writer.klass, SummaryWriter))
+        self.assertTrue(issubclass(cfg.evalers["eval_dummy"].summary_writer.klass, SummaryWriter))
+
+        mock_xprof_module = mock.MagicMock()
+        with mock.patch.dict("sys.modules", {"google_cloud_mldiagnostics": mock_xprof_module}), mock.patch.dict(os.environ, {"AXLEARN_JOB_NAME": "test_run"}):
+            trainer = cfg.instantiate(parent=None)
+
+        # Verify that trainer's summary writer is wrapped in CompositeWriter
+        self.assertIsInstance(trainer.summary_writer, CompositeWriter)
+        self.assertIn("tb", trainer.summary_writer.children)
+        self.assertIn("mldiag", trainer.summary_writer.children)
+        self.assertIsInstance(trainer.summary_writer.children["mldiag"], MLDiagnosticsMetricsWriter)
+
+        # Verify that evaler's summary writer is wrapped in CompositeWriter
+        evaler = trainer._evalers["eval_dummy"]
+        self.assertIsInstance(evaler.summary_writer, CompositeWriter)
+        self.assertIn("tb", evaler.summary_writer.children)
+        self.assertIn("mldiag", evaler.summary_writer.children)
+        self.assertIsInstance(evaler.summary_writer.children["mldiag"], MLDiagnosticsMetricsWriter)
+        self.assertEqual(evaler.config.ml_diagnostics, cfg.ml_diagnostics)
+
+        # 2. Test case where original summary writer is already a CompositeWriter
+        ManagedMLDiagnostics._instance = None
+        cfg = self._trainer_config()
+        cfg.ml_diagnostics = MLDiagnosticsConfig(
+            enable_metrics=True,
+            region="us-central1",
+            gcs_path="gs://test/profiles",
+        )
+        cfg.summary_writer = CompositeWriter.default_config().set(
+            writers={"tb": SummaryWriter.default_config()}
+        )
+        cfg.evalers["eval_dummy"].summary_writer = CompositeWriter.default_config().set(
+            writers={"tb": SummaryWriter.default_config()}
+        )
+
+        with mock.patch.dict("sys.modules", {"google_cloud_mldiagnostics": mock_xprof_module}), mock.patch.dict(os.environ, {"AXLEARN_JOB_NAME": "test_run"}):
+            trainer = cfg.instantiate(parent=None)
+
+        self.assertIsInstance(trainer.summary_writer, CompositeWriter)
+        self.assertIn("tb", trainer.summary_writer.children)
+        self.assertIn("mldiag", trainer.summary_writer.children)
+
+        evaler = trainer._evalers["eval_dummy"]
+        self.assertIsInstance(evaler.summary_writer, CompositeWriter)
+        self.assertIn("tb", evaler.summary_writer.children)
+        self.assertIn("mldiag", evaler.summary_writer.children)
+
 
 class SelectMeshConfigTest(test_utils.TestCase):
     def test_select_mesh_config(self):

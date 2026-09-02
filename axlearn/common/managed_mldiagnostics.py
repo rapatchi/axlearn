@@ -17,9 +17,27 @@
 import logging
 import os
 import threading
-from typing import Optional
+from typing import Any, Optional
 
 from axlearn.common.config import ConfigBase, config_class
+
+
+# Mapping of concrete metric names to Google Cloud ML Diagnostics MetricType names.
+_METRIC_TO_METRIC_TYPE_NAME = {
+    # 1. Model Quality
+    "loss": "LOSS",
+    "learning_rate": "LEARNING_RATE",
+    "learner/learning_rate": "LEARNING_RATE",
+    "learner/optimizer/learning_rate": "LEARNING_RATE",
+    "gradient_norm": "GRADIENT_NORM",
+    "learner/gradient_norm": "GRADIENT_NORM",
+    "learner/optimizer/gradient_norm": "GRADIENT_NORM",
+    "num_model_params": "TOTAL_WEIGHTS",
+
+    # 2. Model Performance
+    "average_step_time": "STEP_TIME",
+    "step_time": "STEP_TIME",
+}
 
 
 class ManagedMLDiagnostics:
@@ -45,7 +63,7 @@ class ManagedMLDiagnostics:
 
             if cfg is None or run_name is None or not cfg.gcs_path:
                 return
-            if not cfg.enable_xprof:
+            if not (cfg.enable_xprof or cfg.enable_metrics):
                 return
             try:
                 from google_cloud_mldiagnostics import machinelearning_run
@@ -63,6 +81,24 @@ class ManagedMLDiagnostics:
 
             except Exception as e:
                 logging.error(f"Failed to start ML Diagnostics run (deferred): {e}", exc_info=True)
+
+    def record_metric(self, path: str, raw_value: Any, step: int):
+        """Record a training metric to ML Diagnostics."""
+        if not self._is_enabled:
+            return
+
+        try:
+            from google_cloud_mldiagnostics import metric_types, metrics as mldiag_metrics
+            path_lower = path.lower()
+            metric_val = float(raw_value)
+
+            metric_type_name = _METRIC_TO_METRIC_TYPE_NAME.get(path_lower)
+            if metric_type_name:
+                metric_type = getattr(metric_types.MetricType, metric_type_name)
+                mldiag_metrics.record(metric_type, metric_val, step=step)
+        except Exception as e:
+            logging.error(
+                f"Failed to record metric {path} to ML Diagnostics: {e}", exc_info=True)
 
     def start_xprof(self):
         """Starts ML diagnostics xprof tracing if available."""
@@ -93,6 +129,7 @@ class ManagedMLDiagnostics:
 class MLDiagnosticsConfig(ConfigBase):
     """Configuration for ML Diagnostics."""
     enable_xprof: bool = False
+    enable_metrics: bool = False
     region: Optional[str] = None
     gcs_path: Optional[str] = None
 
@@ -100,3 +137,8 @@ class MLDiagnosticsConfig(ConfigBase):
 def is_ml_diagnostics_xprof_enabled(cfg: Optional[MLDiagnosticsConfig]) -> bool:
     """Returns True if ML Diagnostics xprof profiling is configured and enabled."""
     return cfg is not None and cfg.enable_xprof
+
+
+def is_ml_diagnostics_metrics_enabled(cfg: Optional[MLDiagnosticsConfig]) -> bool:
+    """Returns True if ML Diagnostics metrics recording is configured and enabled."""
+    return cfg is not None and cfg.enable_metrics

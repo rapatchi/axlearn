@@ -54,6 +54,7 @@ from axlearn.common.state_builder import Builder as TrainerStateBuilder
 from axlearn.common.managed_mldiagnostics import (
     ManagedMLDiagnostics,
     MLDiagnosticsConfig,
+    is_ml_diagnostics_metrics_enabled,
     is_ml_diagnostics_xprof_enabled,
 )
 from axlearn.common.summary_writer import BaseWriter, SummaryWriter
@@ -336,6 +337,9 @@ class SpmdTrainer(Module):
                 xsc_check_policy = maybe_instantiate(cfg.xsc_check_policy)
         self._xsc_check_policy: Optional[Callable[[int], bool]] = xsc_check_policy
         self._compiled_train_step: Optional[jax.stages.Compiled] = None
+        self._enable_ml_diagnostics_metrics: bool = is_ml_diagnostics_metrics_enabled(
+            cfg.ml_diagnostics
+        )
         self._enable_ml_diagnostics_xprof: bool = is_ml_diagnostics_xprof_enabled(
             cfg.ml_diagnostics
         )
@@ -355,7 +359,11 @@ class SpmdTrainer(Module):
             cfg.summary_writer.dir = cfg.summary_writer.dir or os.path.join(
                 cfg.dir, "summaries", "train_train"
             )
-            self._add_child("summary_writer", cfg.summary_writer)
+            writer_cfg = cfg.summary_writer
+            if self._enable_ml_diagnostics_metrics:
+                from axlearn.common.summary_writer import inject_mldiagnostics_writer
+                writer_cfg = inject_mldiagnostics_writer(writer_cfg, cfg.ml_diagnostics)
+            self._add_child("summary_writer", writer_cfg)
             self._add_child("model", cfg.model)
             self._add_child("learner", cfg.learner)
             cfg.checkpointer.dir = cfg.checkpointer.dir or os.path.join(cfg.dir, "checkpoints")
@@ -392,7 +400,7 @@ class SpmdTrainer(Module):
                     maybe_set_config(
                         evaler_cfg.input, partition_spec=PartitionSpec(cfg.batch_axis_names)
                     )
-                if self._enable_ml_diagnostics_xprof:
+                if self._enable_ml_diagnostics_metrics or self._enable_ml_diagnostics_xprof:
                     evaler_cfg.ml_diagnostics = cfg.ml_diagnostics
                 self._evalers[evaler_name] = self._add_child(
                     evaler_name,

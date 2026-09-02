@@ -222,6 +222,7 @@ class GetTrainerConfigTest(TestCase):
             "config_module": "local_module",
             "trainer_dir": "/tmp/trainer",
             "enable_ml_diagnostics_xprof": True,
+            "enable_ml_diagnostics_metrics": True,
             "ml_diagnostics_region": "us-central1",
             "trainer_crash_on_hang_timeout_seconds": 9000,
             "trainer_watchdog_timeout_seconds": 3600,
@@ -245,6 +246,7 @@ class GetTrainerConfigTest(TestCase):
 
             # Verify that ml_diagnostics is configured on the trainer itself (for profiling)
             self.assertTrue(cfg.ml_diagnostics.enable_xprof)
+            self.assertTrue(cfg.ml_diagnostics.enable_metrics)
             self.assertEqual(cfg.ml_diagnostics.region, "us-central1")
             self.assertEqual(cfg.ml_diagnostics.gcs_path, "/tmp/trainer/profiles")
 
